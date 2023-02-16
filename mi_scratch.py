@@ -338,7 +338,7 @@ for act, label in zip(int_activations, labels):
 print(f"Accuracy of lookup table: {correct / len(labels) * 100:.2f} %")
 # %%
 # do a logistic regression on the activations to labels
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression  # type: ignore
 
 lr = LogisticRegression()
 lr.fit(discretized_activations, labels)

@@ -1,6 +1,9 @@
 # Packages that need to be installed to run the code
 # Notably, it's just the standard ML packages with Torch
 
+# Convenience packages
+tqdm 
+
 # Scientific computing packages
 einops
 matplotlib
