@@ -170,7 +170,7 @@ ax.set_xlabel("Number of pixels removed")
 ax.set_ylabel("Mutual information between image and label")
 # %%
 
-# repeat the above but consider MI with pixel 0, 0 instead
+# repeat the above but consider MI with pixel 2, 3 instead
 old_mi = mi_total
 mis = np.zeros(81)
 X_deleting = X_val.clone()
@@ -228,8 +228,8 @@ class ConvNet(nn.Module):
         super(ConvNet, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(7 * 7 * 64, 128)
-        self.fc2 = nn.Linear(128, 10)
+        self.fc1 = nn.Linear(7 * 7 * 64, 64)
+        self.fc2 = nn.Linear(64, 10)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -253,7 +253,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.99))
 criterion = nn.CrossEntropyLoss()
 # %%
 # train the model
-num_epochs = 10
+num_epochs = 5
 for epoch in range(num_epochs):
     for i, (images, labels) in enumerate(train_loader):
         # forward pass
@@ -281,5 +281,113 @@ for epoch in range(num_epochs):
         print(
             f"Test Accuracy of the model on the 10000 test images: {correct / total * 100:.2f} %"
         )
+
+# %%
+# get intermediate activations on valid set
+def get_activations(model, loader):
+    activations = []
+    all_labels = []
+    for i, (images, labels) in enumerate(loader):
+        # forward pass
+        x = F.relu(model.conv1(images))
+        x = F.max_pool2d(x, 2)
+        x = F.relu(model.conv2(x))
+        x = F.max_pool2d(x, 2)
+        x = x.reshape(x.size(0), -1)
+        x = F.relu(model.fc1(x))
+        activations.append(x)
+        all_labels.append(labels)
+    return torch.cat(activations), torch.cat(all_labels)
+
+
+# %%
+activations, labels = get_activations(model, train_loader)
+
+# %%
+# discretize the activations to 0, 1, 2, 3, 4
+normalized_activations = activations / (activations.max(0)[0] + 1e-15)
+discretized_activations = (
+    torch.floor(normalized_activations * 5).type(torch.int64).detach().numpy()
+)
+# %%
+# compute the mutual information between the discretized activations and the labels
+def activations_to_ints(activations, nbins=5):
+    return np.sum(activations * nbins ** np.arange(activations.shape[1]), axis=1)
+
+
+# %%
+int_activations = activations_to_ints(discretized_activations)
+# %%
+lookup_table = dict()
+for act, label in zip(int_activations, labels):
+    if act not in lookup_table:
+        lookup_table[act] = torch.zeros(10)
+    lookup_table[act][label] += 1
+
+clean_lookup_table = dict()
+for act, counts in lookup_table.items():
+    label = torch.argmax(counts)
+    clean_lookup_table[act] = label
+
+# %%
+# calculate accuracy of lookup table
+correct = 0
+for act, label in zip(int_activations, labels):
+    if clean_lookup_table[act] == label:
+        correct += 1
+print(f"Accuracy of lookup table: {correct / len(labels) * 100:.2f} %")
+# %%
+# do a logistic regression on the activations to labels
+from sklearn.linear_model import LogisticRegression
+
+lr = LogisticRegression()
+lr.fit(discretized_activations, labels)
+lr.score(discretized_activations, labels)
+# %%
+mutual_info_score(labels.numpy(), int_activations)
+# %%
+# `entropy`
+def mi_one_feature_removed(X_val, y_val):
+    mi = np.zeros(X_val.shape[-1])
+    for i in range(X_val.shape[-1]):
+        X_val_removed = X_val.copy()
+        X_val_removed[:, i] = 0
+        X_val_removed_int = activations_to_ints(X_val_removed)
+        mi[i] = mutual_info_score(X_val_removed_int, y_val)
+
+    return mi
+
+
+# %%
+old_mi = mi_total
+mis = np.zeros(activations.shape[-1])
+X_deleting = discretized_activations.copy()
+X_mask = np.ones_like(X_deleting)
+for i in range(activations.shape[-1]):
+    # remove features one at a time to compute the mutual information
+    mi = mi_one_feature_removed(X_deleting, labels.numpy())
+
+    # get coordinates of the pixel that's worse to remove,
+    # otherwise return the pixel with the highest entropy if there's a tie
+    worst_pixel = (
+        np.argmax((old_mi - mi) * X_mask)
+        if (old_mi - mi).max() > 0
+        else np.argmax(entropy(X_deleting))
+    )
+    print(
+        f"Step {i}, Worst feature to remove: {worst_pixel}, MI diff: {old_mi - mi[worst_pixel]:.3f}"
+    )
+    old_mi = mi[worst_pixel]
+    X_deleting[:, worst_pixel] = 0
+    mis[i] = old_mi
+    X_mask[:, worst_pixel] = 0
+
+# %%
+# plot the mutual information as we remove features
+plt.plot(mis)
+plt.xlabel("Number of features removed")
+plt.ylabel("Mutual information")
+plt.title("Mutual information remaining after removing features")
+plt.show()
 
 # %%
