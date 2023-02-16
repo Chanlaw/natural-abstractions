@@ -1,0 +1,24 @@
+# Packages that need to be installed to run the code
+# Notably, it's just the standard ML packages with Torch
+
+# Scientific computing packages
+einops
+matplotlib
+numpy
+pandas
+plotly
+scipy
+seaborn
+sklearn
+
+# PyTorch
+torch
+torchvision
+
+# Jupyter notebook
+jupyter
+
+# type checking
+mypy
+data-science-types
+# sklearn-stub
